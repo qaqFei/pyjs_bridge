@@ -3,7 +3,7 @@
 A bridge between Python and JavaScript
 
 ```bash
-pip install pyjs_bridge
+pip install python_js_bridge
 ```
 
 ## sample
