@@ -442,12 +442,14 @@ class JsAst_Lambda(PyJsVar):
     def __init__(
         self,
         body: JsAst_Block, args: typing.Optional[list[JsAst_FunctionArg]] = None,
-        has_ellipsis: bool = False, ellipsis_name: typing.Optional[JsAst_Variable] = None
+        has_ellipsis: bool = False, ellipsis_name: typing.Optional[JsAst_Variable] = None,
+        is_async: bool = False
     ):
         self.args = args
         self.body = body
         self.has_ellipsis = has_ellipsis
         self.ellipsis_name = ellipsis_name
+        self.is_async = is_async
     
     def __js_eval__(self) -> str:
         arg_string = ", ".join(map(tojseval, self.args)) if self.args is not None else ""
@@ -457,7 +459,7 @@ class JsAst_Lambda(PyJsVar):
 
         body_string = tojseval(self.body)
 
-        return f"({arg_string})=>{body_string}"
+        return f"({"async " if self.is_async else ""}({arg_string})=>{body_string})"
 
 class JsAst_Subscript(PyJsVar):
     def __init__(self, name: PyJsVar, index: PyJsVar):
@@ -564,6 +566,10 @@ def pyast2jsast(pyast: ast.AST, need_somepyvar: bool = True) -> PyJsVar:
     
     if isinstance(pyast, (ast.Module, list)):
         block = JsAst_Block(list(map(inner_pyast2jsast, pyast.body if isinstance(pyast, ast.Module) else pyast)))
+        if need_somepyvar: block = JsAst_Block([JsAst_Call(
+            JsAst_Lambda(block, is_async=True),
+            []
+        )])
         if isinstance(pyast, ast.Module) and need_somepyvar:
             block.statements[:0] = inner_pyast2jsast(ast.parse("""
 def _nouse_new(cls):
@@ -571,6 +577,7 @@ def _nouse_new(cls):
 
 print = console.log
 list = Array
+tuple = list
 str = String
 int = Number
 float = Number
@@ -585,8 +592,6 @@ setattr = lambda obj, attr, value: Relect.set(obj, attr, value)
 hasattr = lambda obj, attr: attr in obj
 repr = lambda obj: obj.toString()
 
-Object.prototype.keys = lambda: Object.keys(this)
-
 def isinstance(obj, cls):
     if not eval("cls instanceof Array"):
         cls = [cls]
@@ -600,7 +605,7 @@ def isinstance(obj, cls):
 def range(start, stop, step=1):
     result = []
     
-    if stop is undefined:
+    if stop is None:
         stop = start
         start = 0
         
@@ -629,6 +634,26 @@ def _toofrom_bytes_setbyteorder(bs, byteorder):
 def _set_to_global(valname, val):
     eval(f"{valname} = val")
 
+Object.prototype.keys = lambda: Object.keys(this)
+Object.prototype.values = lambda: Object.values(this)
+Object.prototype.items = lambda: Object.entries(this)
+Object.prototype.get = lambda key, default: this[key] if key in this else default
+Object.prototype.pop = lambda key: (this[key], Reflect.deleteProperty(this, key))[0]
+Object.prototype.popitem = lambda: (Object.keys(this)[0], this.pop(Object.keys(this)[0]))[0]
+Object.prototype.clear = lambda: Reflect.set(this, "length", 0)
+Object.prototype.copy = lambda: Object.assign({}, this)
+
+_protytype_2_class(Object, [
+    "keys",
+    "values",
+    "items",
+    "get",
+    "pop",
+    "popitem",
+    "clear",
+    "copy"
+])
+
 Array.prototype._jssort = Array.prototype.sort
 Array.prototype.copy = lambda: this.slice()
 Array.prototype.append = Array.prototype.push
@@ -638,7 +663,7 @@ Array.prototype.index = lambda value: this.indexOf(value)
 Array.prototype.count = lambda value: this.filter(lambda x: x == value).length
 Array.prototype.insert = lambda index, value: this.splice(index, 0, value)
 Array.prototype.remove = lambda value: this.splice(this.indexOf(value), 1)
-Array.prototype.sort = lambda reverse, key=(lambda x: x): this._jssort(lambda a, b: key(a) - key(b) if reverse is undefined else key(b) - key(a))
+Array.prototype.sort = lambda reverse, key=(lambda x: x): this._jssort(lambda a, b: key(a) - key(b) if reverse is None else key(b) - key(a))
 Array.prototype.clear = lambda: Reflect.set(this, "length", 0)
 
 _protytype_2_class(Array, [
@@ -673,6 +698,134 @@ _protytype_2_class(Number, [
     "from_bytes"
 ])
 
+String.prototype.capitalize = lambda: this.charAt(0).toUpperCase() + this.slice(1)
+String.prototype.casefold = lambda: this.toLowerCase()
+String.prototype.center = lambda width, fillchar = " ": this.padStart((width - this.length) / 2 + this.length, fillchar).padEnd(width, fillchar)
+String.prototype.count = lambda sub, start = 0, end = this.length: this.slice(start, end).split(sub).length - 1
+String.prototype.encode = lambda encoding = "utf-8", errors = "strict": _nouse_new(Blob)([this], { type: "text/plain;charset=utf-8" }).arrayBuffer()
+String.prototype.endswith = lambda suffix, start = 0, end = this.length: this.slice(start, end).endsWith(suffix)
+String.prototype.expandtabs = lambda tabsize = 8: this.replace(eval(r"/\\t/g"), " ".repeat(tabsize))
+String.prototype.find = lambda sub, start = 0, end = this.length: this.slice(start, end).indexOf(sub)
+String.prototype.format = lambda *args: this.replace(eval(r"/{(\\d+)}/g"), lambda match, index: args[index])
+String.prototype.format_map = lambda mapping: this.replace(eval(r"/{(\\w+)}/g"), lambda match, key: mapping[key])
+String.prototype.index = lambda sub, start = 0, end = this.length: this.slice(start, end).indexOf(sub)
+String.prototype.isalnum = lambda: this.match(eval(r"/[a-zA-Z0-9]/g")) is not null
+String.prototype.isalpha = lambda: this.match(eval(r"/[a-zA-Z]/g")) is not null
+String.prototype.isascii = lambda: this.match(eval(r"/[^ -~]/g")) is null
+String.prototype.isdecimal = lambda: this.match(eval(r"/[0-9]/g")) is not null
+String.prototype.isdigit = lambda: this.match(eval(r"/[0-9]/g")) is not null
+String.prototype.isidentifier = lambda: this.match(eval(r"/^[a-zA-Z_][a-zA-Z0-9_]*$/g")) is not null
+String.prototype.islower = lambda: this.match(eval(r"/[a-z]/g")) is not null
+String.prototype.isnumeric = lambda: this.match(eval(r"/[0-9]/g")) is not null
+String.prototype.isprintable = lambda: this.match(eval(r"/[^ -~]/g")) is null
+String.prototype.isspace = lambda: this.match(eval(r"/\\s/g")) is not null
+String.prototype.istitle = lambda: this.match(eval(r"/^[A-Z][a-z]*$/g")) is not null
+String.prototype.isupper = lambda: this.match(eval(r"/[A-Z]/g")) is not null
+String.prototype.join = lambda iterable: iterable.join(this)
+String.prototype.ljust = lambda width, fillchar = " ": this.padEnd(width, fillchar)
+String.prototype.lower = lambda: this.toLowerCase()
+String.prototype.lstrip = lambda chars = " \\t\\n\\r\\v\\f": this.replace(eval(rf"^[\\"{chars}\\"]+"), "")
+String.prototype.partition = lambda sep: [this.slice(0, this.indexOf(sep)), sep, this.slice(this.indexOf(sep) + sep.length)]
+String.prototype.replace = lambda old, new_, count = -1: this.split(old).slice(0, count).join(new_)
+String.prototype.rfind = lambda sub, start = 0, end = this.length: this.slice(start, end).lastIndexOf(sub)
+String.prototype.rindex = lambda sub, start = 0, end = this.length: this.slice(start, end).lastIndexOf(sub)
+String.prototype.rjust = lambda width, fillchar = " ": this.padStart(width, fillchar)
+String.prototype.rpartition = lambda sep: [this.slice(0, this.lastIndexOf(sep)), sep, this.slice(this.lastIndexOf(sep) + sep.length)]
+String.prototype.rsplit = lambda sep = None, maxsplit = -1: this.split(sep, maxsplit).reverse()
+String.prototype.rstrip = lambda chars = " \\t\\n\\r\\v\\f": this.replace(eval(rf"/[\\"{chars}\\"]+$)/g"), "")
+String.prototype.splitlines = lambda keepends = False: this.split("\\n").map(lambda x: x + "\\n" if keepends else x)
+String.prototype.startswith = lambda prefix, start = 0, end = this.length: this.slice(start, end).startsWith(prefix)
+String.prototype.strip = lambda chars = " \\t\\n\\r\\v\\f": this.replace(eval(rf"^[\\"{chars}\\"]+"), "").replace(eval(rf"/[\\"{chars}\\"]+$)/g"), "")
+String.prototype.swapcase = lambda: this.replace(eval(r"/[a-z]/g"), lambda x: x.toUpperCase()).replace(eval(r"/[A-Z]/g"), lambda x: x.toLowerCase())
+String.prototype.title = lambda: this.replace(eval(r"/\\b(\\w)/g"), lambda x: x.toUpperCase())
+String.prototype.translate = lambda table: this.replace(eval(r"/./g"), lambda x: table.get(x))
+String.prototype.upper = lambda: this.toUpperCase()
+String.prototype.zfill = lambda width: this.padStart(width, "0")
+
+_protytype_2_class(String, [
+    "capitalize",
+    "casefold",
+    "center",
+    "count",
+    "encode",
+    "endswith",
+    "expandtabs",
+    "find",
+    "format",
+    "format_map",
+    "index",
+    "isalnum",
+    "isalpha",
+    "isascii",
+    "isdecimal",
+    "isdigit",
+    "isidentifier",
+    "islower",
+    "isnumeric",
+    "isprintable",
+    "isspace",
+    "istitle",
+    "isupper",
+    "join",
+    "ljust",
+    "lower",
+    "lstrip",
+    "partition",
+    "replace",
+    "rfind",
+    "rindex",
+    "rjust",
+    "rpartition",
+    "rsplit",
+    "rstrip",
+    "split",
+    "splitlines",
+    "startswith",
+    "strip",
+    "swapcase",
+    "title",
+    "translate",
+    "upper",
+    "zfill"
+])
+
+def min(*args):
+    return Math.min(*args)
+
+def max(*args):
+    return Math.max(*args)
+
+def zip(*itbs):
+    min_len = min(*[len(i) for i in itbs])
+    return [
+        [it[i] for it in itbs]
+        for i in range(min_len)
+    ]
+
+def map(func, *itbs):
+    return [func(*i) for i in zip(*itbs)]
+
+def filter(func, itb):
+    return [i for i in itb if func(i)]
+
+def reversed(itb):
+    return [
+        itb[i]
+        for i in range(len(itb) - 1, -1, -1)
+    ]
+
+exec = eval
+globals = lambda: {}
+locals = lambda: {}
+hex = lambda x: x.toString(16)
+oct = lambda x: x.toString(8)
+bin = lambda x: x.toString(2)
+ord = lambda x: x.charCodeAt(0)
+chr = lambda x: String.fromCharCode(x)
+pow = lambda x, y: x ** y
+round = lambda x, n = 0: Math.round(x * 10 ** n) / 10 ** n
+sum = lambda itb: eval("+" + itb.join("+"))
+
 _python_packages = {}
 
 _python_packages.time = {
@@ -691,6 +844,18 @@ _python_packages.random = {
     "uniform": lambda a, b: Math.random() * (b - a) + a,
     "gauss": lambda mu, sigma: Math.random() * (high - low) + low,
 }
+
+_python_packages.math = Math
+Math.pi = Math.PI
+Math.e = Math.E
+Math.tau = Math.PI * 2
+Math.inf = Infinity
+Math.nan = NaN
+Math.isfinite = lambda x: isFinite(x)
+Math.isinf = lambda x: x is Infinity or x is -Infinity
+Math.isnan = lambda x: isNaN(x)
+Math.radius = lambda x: x * Math.PI / 180
+Math.degrees = lambda x: x * 180 / Math.PI
 
 def _import_from_python_package(package_name: str, varnames: list[list[str, str|None]], is_all: bool = False):
     if package_name not in _python_packages:
@@ -1107,8 +1272,33 @@ def _import_python_package(package_name: str, alias: str|None = None):
     elif isinstance(pyast, ast.Await):
         return JsAst_Await(inner_pyast2jsast(pyast.value))
     
+    elif isinstance(pyast, ast.Assert):
+        return JsAst_If(
+            JsAst_Not(inner_pyast2jsast(pyast.test)),
+            JsAst_Block([JsAst_Throw(JsAst_Call(JsAst_Variable("AssertionError"), [inner_pyast2jsast(pyast.msg)]))])
+        )
+    
     elif isinstance(pyast, type(None)):
         return None
     
     else:
         print(f"Cannot convert {type(pyast)} to js ast")
+
+if __name__ == "__main__":
+    import sys
+    from os import chdir
+    from os.path import abspath, dirname
+    
+    from jsbeautifier import beautify
+
+    selfdir = dirname(sys.argv[0])
+    if selfdir == "": selfdir = abspath(".")
+    chdir(selfdir)
+
+    pycode = open("./test.py")
+    pyast = ast.parse(pycode.read())
+    jsast = pyast2jsast(pyast)
+    
+    with open("./test.js", "w") as jscode:
+        jscode.write(beautify(tojseval(jsast)))
+        
