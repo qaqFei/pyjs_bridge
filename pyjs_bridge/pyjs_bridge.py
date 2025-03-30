@@ -634,6 +634,9 @@ def _toofrom_bytes_setbyteorder(bs, byteorder):
 def _set_to_global(valname, val):
     eval(f"{valname} = val")
 
+def _neg_index(obj, i: int):
+    return obj[len(obj) + i]
+
 Object.prototype.keys = lambda: Object.keys(this)
 Object.prototype.values = lambda: Object.values(this)
 Object.prototype.items = lambda: Object.entries(this)
@@ -857,6 +860,14 @@ Math.isnan = lambda x: isNaN(x)
 Math.radius = lambda x: x * Math.PI / 180
 Math.degrees = lambda x: x * 180 / Math.PI
 
+def input(prompt = ""):
+    readline = require("readline").createInterface({
+        input: process.stdin,
+        output: process.stdout
+    })
+    
+    return _nouse_new(Promise)(lambda resolve: readline.question(prompt, lambda res: (resolve(res), readline.close())[0]))
+
 def _import_from_python_package(package_name: str, varnames: list[list[str, str|None]], is_all: bool = False):
     if package_name not in _python_packages:
         raise ImportError(f"Package {package_name} not found")
@@ -1041,7 +1052,11 @@ def _import_python_package(package_name: str, alias: str|None = None):
     
     elif isinstance(pyast, ast.Subscript):
         if not isinstance(pyast.slice, ast.Slice):
-            return JsAst_Subscript(inner_pyast2jsast(pyast.value), inner_pyast2jsast(pyast.slice))
+            v = inner_pyast2jsast(pyast.value)
+            s = inner_pyast2jsast(pyast.slice)
+            if isinstance(s, JsAst_Neg):
+                return JsAst_Call(JsAst_Variable("_neg_index"), [v, s])
+            return JsAst_Subscript(v, s)
         
         s = pyast.slice
         if s.step is None:
