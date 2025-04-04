@@ -1,10 +1,17 @@
+from js_typehint import *
+
 class Person:
-    def __init__(self, name, age):
+    def __init__(self, name: str, age: int):
         self.name = name
         self.age = age
 
     def say_hello(self):
-        return print(f"Hello, my name is {self.name} and I am {self.age} years old.")
+        print(f"Hello, my name is {self.name} and I am {self.age} years old.")
+    
+    def __repr__(self):
+        return f"Person(name={self.name}, age={self.age})"
 
-person = Person("John", 30)
-person.say_hello()
+jack = Person("Jack", 25)
+jack.say_hello()
+
+print(f"{jack}")

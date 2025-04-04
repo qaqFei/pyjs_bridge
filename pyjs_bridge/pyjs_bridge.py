@@ -585,6 +585,8 @@ bytes = _nouse_new(Uint8Array)
 bytearray = _nouse_new(Uint8Array)
 memoryview = _nouse_new(Uint8Array)
 set = _nouse_new(Set)
+PyPromise = _nouse_new(Promise)
+PyProxy = _nouse_new(Proxy)
 
 len = lambda obj: obj.length
 getattr = lambda obj, attr: obj[attr]
@@ -833,7 +835,7 @@ _python_packages = {}
 
 _python_packages.time = {
     "time": lambda: Date.now() / 1000,
-    "sleep": lambda seconds: _nouse_new(Promise)(lambda resolve: setTimeout(resolve, seconds * 1000)),
+    "sleep": lambda seconds: PyPromise(lambda resolve: setTimeout(resolve, seconds * 1000)),
     "perf_counter": lambda: Date.now() / 1000,
     "perf_counter_ns": lambda: Date.now() * 1000
 }
@@ -860,15 +862,21 @@ Math.isnan = lambda x: isNaN(x)
 Math.radius = lambda x: x * Math.PI / 180
 Math.degrees = lambda x: x * 180 / Math.PI
 
-def input(prompt = ""):
-    readline = require("readline").createInterface({
-        input: process.stdin,
-        output: process.stdout
-    })
-    
-    return _nouse_new(Promise)(lambda resolve: readline.question(prompt, lambda res: (resolve(res), readline.close())[0]))
+def input(pt = ""):
+    try:
+        readline = require("readline").createInterface({
+            input: process.stdin,
+            output: process.stdout
+        })
+        
+        return PyPromise(lambda resolve: readline.question(pt, lambda res: (resolve(res), readline.close())[0]))
+    except ReferenceError as e:
+        return PyPromise(lambda resolve: resolve(prompt(pt)))
 
 def _import_from_python_package(package_name: str, varnames: list[list[str, str|None]], is_all: bool = False):
+    if package_name == "js_typehint":
+        return
+        
     if package_name not in _python_packages:
         raise ImportError(f"Package {package_name} not found")
     
@@ -881,8 +889,12 @@ def _import_from_python_package(package_name: str, varnames: list[list[str, str|
             _set_to_global(alias if alias is not None else varname, _python_packages[package_name][varname])
 
 def _import_python_package(package_name: str, alias: str|None = None):
+    if package_name == "js_typehint":
+        return
+        
     if package_name not in _python_packages:
         raise ImportError(f"Package {package_name} not found")
+        
     _set_to_global(alias if alias is not None else package_name, _python_packages[package_name])
 """ + f"""
 {"\n".join(map(lambda e: f"{e.__name__} = Error", pyexceptions))}
