@@ -1322,7 +1322,7 @@ if __name__ == "__main__":
     if selfdir == "": selfdir = abspath(".")
     chdir(selfdir)
 
-    pycode = open("./test.py")
+    pycode = open("./test.py", encoding="utf-8")
     pyast = ast.parse(pycode.read())
     jsast = pyast2jsast(pyast)
     
